@@ -146,3 +146,26 @@ describe('review fixes', () => {
     expect(rep.list(session.id)[0].verdict).not.toContain('NaN')
   })
 })
+
+describe('live regressions from run C (context overflow)', () => {
+  it('compaction overflow message classifies as context-overflow without a code', () => {
+    const { rep, col } = setup()
+    const session = fakeSession()
+    col.onSessionEvent(session, { type: 'compaction/end', seq: 1, data: { compactionId: 'c',
+      error: '400: {"code":400,"message":"request (97985 tokens) exceeds the available context size (32768 tokens), try increasing it","type":"exceed_context_size_error"}' } })
+    const [v] = rep.list(session.id)
+    expect(v.layer).toBe('context-overflow')
+    expect(v.evidence).toContain('97985')
+  })
+  it('terminal merges into the attempt even when a compaction verdict intervenes', () => {
+    const { rep, col } = setup()
+    const session = fakeSession()
+    const failure = { code: 'CONTEXT_WINDOW_EXCEEDED', message: '400: request (98875 tokens) exceeds the available context size (32768 tokens)' }
+    col.onRequestError({ agent: { session }, turn: 1, step: 1, provider: 'llamacpp', failure })
+    col.onSessionEvent(session, { type: 'compaction/end', seq: 2, data: { compactionId: 'c', error: 'summarization produced no text summary content' } })
+    col.onSessionEvent(session, { type: 'turn/end', seq: 3, data: { turn: 1, reason: { kind: 'error', error: failure } } })
+    const models = rep.list(session.id).filter(v => v.kind === 'model')
+    expect(models).toHaveLength(1)
+    expect(models[0].terminal).toBe(true)
+  })
+})

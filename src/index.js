@@ -80,7 +80,7 @@ export function classify({ code = 'UNKNOWN', message = '', record, timeouts, con
     return v('transport', 'guess', 'the network transport failed; timing does not single out one layer.',
       `raw: ${code}: ${message}; possibilities: Node's HTTP timers (${FETCH_HINT}) or the server closing the connection`)
   }
-  if (code === 'CONTEXT_WINDOW_EXCEEDED') {
+  if (code === 'CONTEXT_WINDOW_EXCEEDED' || /exceeds the available context size/i.test(message)) {
     const m = /(\d+) tokens?\D+?(\d+) tokens?/.exec(message)
     return v('context-overflow', 'exact', "the prompt is bigger than the server's context window.",
       'compact the conversation, start the server with a larger context, or lower the compaction threshold',
@@ -151,11 +151,16 @@ export function createStopwatch(now) {
     try {
       for await (const chunk of next()) {
         const t = now()
-        if (record.chunks === 0) record.firstChunkAt = t
         if (t - lastAt > record.longestGapMs) record.longestGapMs = t - lastAt
         lastAt = t
-        record.chunks += 1
+        // usage and finish chunks are synthesized even on the error path, so only
+        // content chunks count as reply bytes (verified live: a request that got
+        // zero network bytes still yields usage + finish at failure time)
         if (chunk?.type === 'finish') record.finish = chunk.reason
+        else if (chunk?.type !== 'usage') {
+          if (record.chunks === 0) record.firstChunkAt = t
+          record.chunks += 1
+        }
         yield chunk
       }
     } finally {
@@ -214,8 +219,8 @@ export function createCollector({ stopwatch, reporter, config }) {
   const modelVerdict = (session, { turn, step, provider, failure, attempt, terminal, retrying }) => {
     if (failure?.code === 'ABORTED') return
     if (terminal) {
-      const prev = reporter.list(session.id).at(-1)
-      if (prev && prev.kind === 'model' && prev.turn === turn && !prev.terminal
+      const prev = reporter.list(session.id).findLast((x) => x.kind === 'model' && x.turn === turn)
+      if (prev && !prev.terminal
         && prev.failure?.code === failure?.code && prev.failure?.message === failure?.message) {
         prev.terminal = true
         return

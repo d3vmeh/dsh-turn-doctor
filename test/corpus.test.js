@@ -32,3 +32,20 @@ describe('local failure corpus', () => {
     expect(classifyCompaction('pi-ai stream idle timeout after 300000ms').layer).toBe('dsh-watchdog')
   })
 })
+
+// Live run 2026-08-30: a 330 s pre-headers stall through real dsh produced this record.
+import { createStopwatch } from '../src/index.js'
+describe('live regression: pre-headers stall', () => {
+  it('classifies as undici-headers despite synthetic usage and finish chunks', async () => {
+    const clock = { t: 0 }
+    const sw = createStopwatch(() => clock.t)
+    const gen = sw.wrap({ sessionId: 's', provider: 'stall' }, () => (async function* () {
+      clock.t += 300700
+      yield { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } }
+      yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TIMEOUT', message: 'Request timed out.' } } }
+    })())
+    for await (const c of gen) void c
+    const v = classify({ code: 'TIMEOUT', message: 'Request timed out.', record: sw.lastFor('s'), timeouts: DEFAULT_TIMEOUTS })
+    expect(v.layer).toBe('undici-headers')
+  })
+})

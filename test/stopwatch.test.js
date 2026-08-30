@@ -27,7 +27,7 @@ describe('stopwatch', () => {
     const r = sw.lastFor('s1')
     expect(r.firstChunkAt - r.startedAt).toBe(2100)
     expect(r.longestGapMs).toBe(300100)
-    expect(r.chunks).toBe(3)
+    expect(r.chunks).toBe(2)
     expect(r.finish).toEqual(finish.reason)
     expect(r.endedAt - r.startedAt).toBe(302700)
   })
@@ -44,6 +44,20 @@ describe('stopwatch', () => {
     await drain(sw.wrap({}, () => scripted({ t: 0 }, [{ advance: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } }])))
     expect(sw.size()).toBe(0)
   })
+  it('usage and finish alone are not reply bytes (live pi-ai error path)', async () => {
+    const clock = { t: 0 }
+    const sw = createStopwatch(() => clock.t)
+    const gen = sw.wrap({ sessionId: 's3' }, () => scripted(clock, [
+      { advance: 300700, chunk: { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } } },
+      { advance: 0, chunk: { type: 'finish', reason: { kind: 'error', failure: { code: 'TIMEOUT', message: 'Request timed out.' } } } },
+    ]))
+    await drain(gen)
+    const r = sw.lastFor('s3')
+    expect(r.chunks).toBe(0)
+    expect(r.firstChunkAt).toBeUndefined()
+    expect(r.longestGapMs).toBe(300700)
+  })
+
   it('caps stored sessions at 200, oldest evicted', () => {
     const sw = createStopwatch(() => 0)
     for (let i = 0; i < 210; i++) sw.store({ sessionId: 'x' + i, startedAt: 0, endedAt: 0, chunks: 0, longestGapMs: 0 })
