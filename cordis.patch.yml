@@ -1,0 +1,5 @@
+insert:
+  - id: turn-doctor
+    import: dsh-turn-doctor
+    config:
+      providers: {}
