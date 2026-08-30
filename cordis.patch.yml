@@ -1,5 +1,13 @@
-insert:
-  - id: turn-doctor
-    import: dsh-turn-doctor
-    config:
-      providers: {}
+# Bundle layer for dsh-turn-doctor: inserts the plugin with default timeouts.
+# Configure it from your profile's cordis.patch.yml with an override row:
+#
+# - id: turn-doctor
+#   config:
+#     providers:
+#       llamacpp:
+#         streamIdleTimeoutMs: 7200000
+- insert:
+    - id: turn-doctor
+      name: dsh-turn-doctor
+      config:
+        providers: {}
