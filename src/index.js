@@ -189,7 +189,8 @@ export function createReporter(ctx, config, now = Date.now) {
     ring.push(full)
     while (ring.length > config.keep) ring.shift()
     rings.set(session.id, ring)
-    try { session.append('turn-doctor/verdict', full) } catch { /* session gone; terminal line already out */ }
+    // Verdicts stay in memory. dsh refuses to load a session log that contains an
+    // event type it does not know, and session.append() cannot mark one ignorable.
   }
   return { report, list: (id) => rings.get(id) ?? [], rings }
 }
@@ -213,7 +214,9 @@ export function createCollector({ stopwatch, reporter, config }) {
   const timeoutsFor = (provider) => ({ ...DEFAULT_TIMEOUTS, ...config.providers?.[provider] })
   const isConfigured = (provider) => Boolean(config.providers?.[provider])
   const origin = (session) => String(session.id).startsWith('session-') ? undefined : 'subagent'
-  const lastRetry = (session, turn, step) => session.events.findLast(
+  // dsh 0.1.1 exposes the session log as `events`; 0.1.2 (alpha.4 onward) only through snapshotEvents().
+  const logOf = (session) => (typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events) ?? []
+  const lastRetry = (session, turn, step) => logOf(session).findLast(
     (e) => e.type === 'llm/retry' && e.data.turn === turn && (step === undefined || e.data.step === step))?.data
 
   const modelVerdict = (session, { turn, step, provider, failure, attempt, terminal, retrying }) => {
@@ -263,7 +266,7 @@ export function createCollector({ stopwatch, reporter, config }) {
       }
     } else if (event.type === 'tool/result' && d.error?.code === 'TOOL_TIMEOUT') {
       if (remember(session, `tt:${event.seq}`)) {
-        const call = session.events.findLast((e) => e.type === 'tool/call' && e.data.callId === d.callId)
+        const call = logOf(session).findLast((e) => e.type === 'tool/call' && e.data.callId === d.callId)
         reporter.report(session, { ...classifyToolTimeout(call?.data.name ?? 'a tool', d.error.message ?? ''),
           kind: 'tool', turn: d.turn, origin: origin(session) })
       }

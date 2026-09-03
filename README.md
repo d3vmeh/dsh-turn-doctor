@@ -82,7 +82,7 @@ If a provider isn't configured, turn-doctor assumes the standard 300-second defa
 
 * turn-doctor only diagnoses failures. It doesn't retry requests, change settings, or inject anything into the model context.
 * If the SDK timer and undici headers timer are both set to 300 seconds, a first-byte timeout can be ambiguous. In that case, turn-doctor reports undici because fixing it requires `dsh-fetch-timeouts`; dsh can't change that timer itself.
-* Verdicts are also written to the session log as `turn-doctor/verdict` events. They could eventually be rendered directly in the web chat.
+* Verdicts live in memory for the life of the dsh process (the last few per session, for `/why`). They are not written to the session log: dsh refuses to load a log containing event types it does not know, so a plugin event there would make the session unresumable.
 * [dsh-error-lens](https://github.com/Wanbinyu/dsh-error-lens) is related, but solves a different problem: it shows recent failures in a web panel grouped by HTTP status. turn-doctor uses request timing to distinguish the different timeout layers, and also covers compactions and tool calls.
 
 ## License

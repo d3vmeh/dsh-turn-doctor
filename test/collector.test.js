@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createCollector, createStopwatch, createReporter } from '../src/index.js'
-import { fakeCtx, fakeSession } from './helpers.js'
+import { fakeCtx, fakeSession, fakeSessionAlpha } from './helpers.js'
 
 function setup(config = { providers: {}, keep: 10 }) {
   const ctx = fakeCtx()
@@ -32,6 +32,20 @@ describe('collector', () => {
     const [v] = rep.list(session.id)
     expect(v.terminal).toBe(true)
     expect(v.evidence).toContain('retries exhausted (5)')
+  })
+  it('reads the session log through snapshotEvents() on dsh 0.1.2 (events array removed)', () => {
+    const { rep, col } = setup()
+    const session = fakeSessionAlpha()
+    session.log.push({ type: 'llm/retry', seq: 1, data: { turn: 3, step: 1, retry: 5, maxRetries: 5, provider: 'llamacpp', failure: { code: 'TRANSPORT', message: 'Connection error.' } } })
+    session.log.push({ type: 'tool/call', seq: 2, data: { turn: 3, step: 1, callId: 'c9', name: 'web_fetch', arguments: '{}' } })
+    col.onSessionEvent(session, { type: 'tool/result', seq: 3, data: { turn: 3, step: 1, callId: 'c9',
+      error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT', message: 'tool call timed out after 120000ms' } } })
+    col.onSessionEvent(session, { type: 'turn/end', seq: 4, data: { turn: 3, reason: { kind: 'error', error: { code: 'AUTH', message: '401' } } } })
+    const verdicts = rep.list(session.id)
+    expect(verdicts.map(v => v.layer)).toEqual(['tool-timeout', 'auth'])
+    expect(verdicts[0].verdict).toContain('web_fetch')
+    expect(verdicts[1].terminal).toBe(true)
+    expect(verdicts[1].evidence).toContain('retries exhausted (5)')
   })
   it('deduplicates the same event delivered twice', () => {
     const { rep, col } = setup()

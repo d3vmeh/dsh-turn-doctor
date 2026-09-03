@@ -1,6 +1,6 @@
 {
   "name": "dsh-turn-doctor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness plugin that explains which layer killed a failed turn and how to fix it",
   "type": "module",
   "main": "src/index.js",

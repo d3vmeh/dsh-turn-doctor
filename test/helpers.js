@@ -27,3 +27,15 @@ export function fakeSession(id = 'session-1', header = {}) {
     requestHeader: () => ({ config: { provider: 'llamacpp', model: 'm' } }),
   }
 }
+
+// dsh 0.1.2 (alpha.4 onward) removed the `events` array; the log is read through snapshotEvents().
+export function fakeSessionAlpha(id = 'session-1', header = {}) {
+  const log = []
+  return {
+    id,
+    header,
+    log,
+    snapshotEvents: () => log.slice(),
+    requestHeader: () => ({ config: { provider: 'llamacpp', model: 'm' } }),
+  }
+}
