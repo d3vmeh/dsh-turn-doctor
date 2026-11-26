@@ -266,8 +266,14 @@ export function createCollector({ stopwatch, reporter, config }) {
       }
     } else if (event.type === 'tool/result' && d.error?.code === 'TOOL_TIMEOUT') {
       if (remember(session, `tt:${event.seq}`)) {
-        const call = logOf(session).findLast((e) => e.type === 'tool/call' && e.data.callId === d.callId)
-        reporter.report(session, { ...classifyToolTimeout(call?.data.name ?? 'a tool', d.error.message ?? ''),
+        // The call id and readable text live on the tool message. dsh 0.1.x wraps
+        // the text in a tool-result block; 0.2.x puts it directly in the content.
+        const callId = d.message?.source?.callId
+        const call = logOf(session).findLast((e) => e.type === 'tool/call' && e.data.callId === callId)
+        const blocks = d.message?.content ?? []
+        const inner = blocks.find?.((b) => b.type === 'tool-result')?.content ?? blocks
+        const text = (inner.find?.((b) => b.type === 'text')?.text ?? '').replace(/^Error: /, '')
+        reporter.report(session, { ...classifyToolTimeout(call?.data.name ?? 'a tool', text),
           kind: 'tool', turn: d.turn, origin: origin(session) })
       }
     }

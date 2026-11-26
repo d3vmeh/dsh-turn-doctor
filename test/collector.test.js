@@ -11,6 +11,21 @@ function setup(config = { providers: {}, keep: 10 }) {
   return { ctx, sw, rep, col }
 }
 
+// tool/result data as dsh commits it. The error info carries only name and code
+// in both versions; the call id and text live on the tool message, whose shape
+// changed between 0.1.1 (user message wrapping a tool-result block) and 0.2.2.
+const timeoutResult = (callId) => ({
+  message: { role: 'tool', source: { kind: 'tool', callId }, toolCallId: callId,
+    content: [{ type: 'text', text: 'Error: tool call timed out after 120000ms' }], isError: true },
+  error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+})
+const timeoutResult011 = (callId) => ({
+  message: { role: 'user', source: { kind: 'tool', callId },
+    content: [{ type: 'tool-result', toolCallId: callId, isError: true,
+      content: [{ type: 'text', text: 'Error: tool call timed out after 120000ms' }] }] },
+  error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+})
+
 describe('collector', () => {
   it('llm/retry event produces a retrying verdict with attempt', () => {
     const { sw, rep, col } = setup()
@@ -38,8 +53,7 @@ describe('collector', () => {
     const session = fakeSessionAlpha()
     session.log.push({ type: 'llm/retry', seq: 1, data: { turn: 3, step: 1, retry: 5, maxRetries: 5, provider: 'llamacpp', failure: { code: 'TRANSPORT', message: 'Connection error.' } } })
     session.log.push({ type: 'tool/call', seq: 2, data: { turn: 3, step: 1, callId: 'c9', name: 'web_fetch', arguments: '{}' } })
-    col.onSessionEvent(session, { type: 'tool/result', seq: 3, data: { turn: 3, step: 1, callId: 'c9',
-      error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT', message: 'tool call timed out after 120000ms' } } })
+    col.onSessionEvent(session, { type: 'tool/result', seq: 3, data: { turn: 3, step: 1, ...timeoutResult('c9') } })
     col.onSessionEvent(session, { type: 'turn/end', seq: 4, data: { turn: 3, reason: { kind: 'error', error: { code: 'AUTH', message: '401' } } } })
     const verdicts = rep.list(session.id)
     expect(verdicts.map(v => v.layer)).toEqual(['tool-timeout', 'auth'])
@@ -78,12 +92,21 @@ describe('collector', () => {
     const session = fakeSession()
     session.events.push({ type: 'tool/call', seq: 2, data: { turn: 1, step: 1, callId: 'c9', name: 'web_fetch', arguments: '{}' } })
     col.onSessionEvent(session, { type: 'compaction/end', seq: 1, data: { compactionId: 'c', error: 'summarization truncated at the token cap (incomplete checkpoint)' } })
-    col.onSessionEvent(session, { type: 'tool/result', seq: 3, data: { turn: 1, step: 1, callId: 'c9',
-      error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT', message: 'tool call timed out after 120000ms' } } })
+    col.onSessionEvent(session, { type: 'tool/result', seq: 3, data: { turn: 1, step: 1, ...timeoutResult('c9') } })
     col.onSessionEvent(session, { type: 'turn/end', seq: 4, data: { turn: 2, reason: { kind: 'max-tokens' } } })
     const layers = rep.list(session.id).map(v => v.layer)
     expect(layers).toEqual(['compaction-token-cap', 'tool-timeout', 'max-tokens'])
     expect(rep.list(session.id)[1].verdict).toContain('web_fetch')
+    expect(rep.list(session.id)[1].evidence).toBe('tool call timed out after 120000ms')
+  })
+  it('tool timeout on dsh 0.1.1 (tool-result wrapped in a user message)', () => {
+    const { rep, col } = setup()
+    const session = fakeSession()
+    session.events.push({ type: 'tool/call', seq: 2, data: { turn: 1, step: 1, callId: 'c9', name: 'web_fetch', arguments: '{}' } })
+    col.onSessionEvent(session, { type: 'tool/result', seq: 3, data: { turn: 1, step: 1, ...timeoutResult011('c9') } })
+    const [v] = rep.list(session.id)
+    expect(v.verdict).toContain('web_fetch')
+    expect(v.evidence).toBe('tool call timed out after 120000ms')
   })
   it('successful tool results and completed turns are ignored', () => {
     const { rep, col } = setup()
